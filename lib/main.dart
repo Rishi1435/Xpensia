@@ -1,11 +1,11 @@
 
-import 'package:device_preview/device_preview.dart';
+// import 'package:device_preview/device_preview.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:xpensia/data/data.dart';
 import 'package:provider/provider.dart';
 import 'package:xpensia/screens/home/home_screen.dart';
-import 'package:xpensia/screens/settings.dart';
+// import 'package:xpensia/screens/settings.dart';
 
 void main() {
   runApp(
