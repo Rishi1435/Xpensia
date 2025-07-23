@@ -1,6 +1,6 @@
 # xpensia
 
-A new Flutter project.
+A new Flutter project to get your own personalized expense tracker.
 
 ## Getting Started
 
