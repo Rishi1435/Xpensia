@@ -65,3 +65,9 @@ amplifytools.xcconfig
 .secret-*
 **.sample
 #amplify-do-not-edit-end
+
+# Environment Variables
+.env
+backend/.env
+
+backend/service-account.json

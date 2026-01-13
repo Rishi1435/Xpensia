@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:popover/popover.dart';
+import 'package:provider/provider.dart';
+import 'package:xpensia/data/data.dart';
 import 'package:xpensia/data/api_integration.dart';
-
 
 class Addexpense extends StatefulWidget {
   const Addexpense({super.key});
@@ -17,6 +18,7 @@ class _AddexpenseState extends State<Addexpense> {
   final TextEditingController _expenseController = TextEditingController();
   final TextEditingController _dateController = TextEditingController();
   DateTime selectedDate = DateTime.now();
+  TransactionType _selectedType = TransactionType.debit;
   bool _isLoading = false;
 
   @override
@@ -68,19 +70,22 @@ class _AddexpenseState extends State<Addexpense> {
 
     try {
       String formattedDate = DateFormat('yyyy-MM-dd').format(selectedDate);
-      
+
       final result = await ExpenseApiService.addExpense(
         title: _titleController.text.trim(),
         amount: amount,
         category: _categoryController.text,
         date: formattedDate,
+        type: _selectedType,
       );
+
+      if (!mounted) return;
 
       if (result['success']) {
         _showSnackBar('Expense added successfully!', Colors.green);
         _clearForm();
         // Navigate back to home screen
-        Navigator.of(context).pop();
+        if (mounted) Navigator.of(context).pop();
       } else {
         _showSnackBar(result['message'], Colors.red);
       }
@@ -129,7 +134,24 @@ class _AddexpenseState extends State<Addexpense> {
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
             ),
-            const SizedBox(height: 30),
+            const SizedBox(height: 20),
+            // Transaction Type Toggle
+            Center(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.tertiary,
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildTypeButton("Expense", TransactionType.debit),
+                    _buildTypeButton("Income", TransactionType.credit),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
             Center(
               child: Container(
                 padding: EdgeInsets.symmetric(horizontal: 10),
@@ -152,7 +174,7 @@ class _AddexpenseState extends State<Addexpense> {
               ),
             ),
             const SizedBox(height: 20),
-            
+
             Center(
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -173,7 +195,7 @@ class _AddexpenseState extends State<Addexpense> {
                 ),
               ),
             ),
-            SizedBox(height: 20,),
+            SizedBox(height: 20),
             Center(
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -213,7 +235,7 @@ class _AddexpenseState extends State<Addexpense> {
               ),
             ),
             const SizedBox(height: 20),
-            
+
             Center(
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -262,8 +284,9 @@ class _AddexpenseState extends State<Addexpense> {
                           );
                           if (newDate != null) {
                             setState(() {
-                              _dateController.text =
-                                  DateFormat("dd/MM/yyyy").format(newDate);
+                              _dateController.text = DateFormat(
+                                "dd/MM/yyyy",
+                              ).format(newDate);
                               selectedDate = newDate;
                             });
                           }
@@ -276,7 +299,7 @@ class _AddexpenseState extends State<Addexpense> {
               ),
             ),
             const SizedBox(height: 30),
-            
+
             Center(
               child: SizedBox(
                 width: MediaQuery.of(context).size.width * 0.9,
@@ -315,6 +338,33 @@ class _AddexpenseState extends State<Addexpense> {
       ),
     );
   }
+
+  Widget _buildTypeButton(String label, TransactionType type) {
+    final isSelected = _selectedType == type;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedType = type;
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? Theme.of(context).colorScheme.primary
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.white : Colors.grey,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class MenuList extends StatelessWidget {
@@ -323,14 +373,9 @@ class MenuList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final List<String> categories = [
-      "Food",
-      "Transport",
-      "Entertainment",
-      "Bills",
-      "Shopping",
-      "Groceries",
-    ];
+    final categories = context.select<ExpenseProvider, List<String>>(
+      (p) => p.categories,
+    );
 
     return ListView.builder(
       padding: const EdgeInsets.all(8),

@@ -1,9 +1,15 @@
 import 'package:flutter/cupertino.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:xpensia/data/data.dart';
+import 'package:xpensia/data/api_integration.dart';
 import 'package:intl/intl.dart';
 import 'package:xpensia/screens/settings.dart';
+import 'dart:io';
+import 'package:xpensia/data/theme_provider.dart';
+import 'package:xpensia/screens/transactions/transactions_screen.dart';
+import 'package:xpensia/screens/transactions/transaction_details_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -17,8 +23,18 @@ class _MainScreenState extends State<MainScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ExpenseProvider>().loadExpenses();
+      _userInfo();
+      // Auto-refresh handled by HomeScreen parent now
     });
+  }
+
+  void _userInfo() {
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
   }
 
   @override
@@ -34,22 +50,38 @@ class _MainScreenState extends State<MainScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        Container(
-                          width: 50,
-                          height: 50,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.grey,
-                          ),
-                        ),
-                        Icon(
-                          CupertinoIcons.person_fill,
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                      ],
+                    Consumer<ThemeProvider>(
+                      builder: (context, themeProvider, child) {
+                        return Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Container(
+                              width: 50,
+                              height: 50,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.grey,
+                                image: themeProvider.profileImagePath != null
+                                    ? DecorationImage(
+                                        image: FileImage(
+                                          File(themeProvider.profileImagePath!),
+                                        ),
+                                        fit: BoxFit.cover,
+                                      )
+                                    : null,
+                              ),
+                              child: themeProvider.profileImagePath == null
+                                  ? Icon(
+                                      CupertinoIcons.person_fill,
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSurface,
+                                    )
+                                  : null,
+                            ),
+                          ],
+                        );
+                      },
                     ),
                     SizedBox(width: 12),
                     Column(
@@ -64,7 +96,11 @@ class _MainScreenState extends State<MainScreen> {
                           ),
                         ),
                         Text(
-                          'Viraj',
+                          FirebaseAuth.instance.currentUser?.displayName ??
+                              FirebaseAuth.instance.currentUser?.email?.split(
+                                '@',
+                              )[0] ??
+                              'User',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -91,7 +127,7 @@ class _MainScreenState extends State<MainScreen> {
             Consumer<ExpenseProvider>(
               builder: (context, expenseProvider, child) {
                 double totalExpenses = expenseProvider.totalExpenses;
-                double totalIncome = 20000.00;
+                double totalIncome = expenseProvider.totalIncome;
                 double totalBalance = totalIncome - totalExpenses;
 
                 return Container(
@@ -101,8 +137,8 @@ class _MainScreenState extends State<MainScreen> {
                     borderRadius: BorderRadius.circular(25),
                     gradient: LinearGradient(
                       colors: [
-                        Theme.of(context).colorScheme.primary,
-                        Theme.of(context).colorScheme.secondary,
+                        Color(0xFF000428), // Midnight Blue (Restored)
+                        Color(0xFF0074E4), // Royal Blue
                       ],
                     ),
                     boxShadow: [
@@ -241,9 +277,12 @@ class _MainScreenState extends State<MainScreen> {
                 ),
                 GestureDetector(
                   onTap: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) {
-                      return ViewAll();
-                    },));
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const TransactionsScreen(),
+                      ),
+                    );
                   },
                   child: Text(
                     "View all",
@@ -297,46 +336,66 @@ class _MainScreenState extends State<MainScreen> {
                     );
                   }
 
-                  return ListView.builder(
-                    itemCount: expenseProvider.recentExpenses.length,
-                    itemBuilder: (context, index) {
-                      final expense = expenseProvider.recentExpenses[index];
-                      return Card(
-                        margin: EdgeInsets.only(bottom: 10),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: Theme.of(
-                              context,
-                            ).colorScheme.primary,
-                            child: Icon(
-                              _getCategoryIcon(expense.category),
-                              color: Colors.white,
-                            ),
-                          ),
-                          title: Text(
-                            expense.title,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              color: Theme.of(context).colorScheme.onSurface,
-                            ),
-                          ),
-                          subtitle: Text(
-                            '${expense.category} • ${_formatDate(expense.date)}',
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.outline,
-                            ),
-                          ),
-                          trailing: Text(
-                            '₹${expense.amount.toStringAsFixed(2)}',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.redAccent,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ),
-                      );
+                  // Drag Down to Refresh
+                  return RefreshIndicator(
+                    onRefresh: () async {
+                      await expenseProvider.loadExpenses();
                     },
+                    child: ListView.builder(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      itemCount: expenseProvider.recentExpenses.length,
+                      itemBuilder: (context, index) {
+                        final expense = expenseProvider.recentExpenses[index];
+                        return Card(
+                          margin: EdgeInsets.only(bottom: 10),
+                          child: ListTile(
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      TransactionDetailsScreen(
+                                        expense: expense,
+                                      ),
+                                ),
+                              );
+                            },
+                            leading: CircleAvatar(
+                              backgroundColor: Theme.of(
+                                context,
+                              ).colorScheme.primary,
+                              child: Icon(
+                                _getCategoryIcon(expense.category),
+                                color: Colors.white,
+                              ),
+                            ),
+                            title: Text(
+                              expense.title,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: Theme.of(context).colorScheme.onSurface,
+                              ),
+                            ),
+                            subtitle: Text(
+                              '${expense.category} • ${_formatDate(expense.date)}',
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.outline,
+                              ),
+                            ),
+                            trailing: Text(
+                              '${expense.type == TransactionType.credit ? '+' : '-'}₹${expense.amount.toStringAsFixed(2)}',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: expense.type == TransactionType.credit
+                                    ? Colors.green
+                                    : Colors.redAccent,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
                   );
                 },
               ),
@@ -373,99 +432,5 @@ class _MainScreenState extends State<MainScreen> {
     } catch (e) {
       return dateString;
     }
-  }
-
-  Widget ViewAll() {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text("Transactions",),
-        centerTitle: true,
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: Consumer<ExpenseProvider>(
-              builder: (context, expenseProvider, child) {
-                if (expenseProvider.isLoading) {
-                  return Center(child: CircularProgressIndicator());
-                }
-          
-                if (expenseProvider.error != null) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          'Error: ${expenseProvider.error}',
-                          style: TextStyle(color: Colors.red),
-                          textAlign: TextAlign.center,
-                        ),
-                        SizedBox(height: 10),
-                        ElevatedButton(
-                          onPressed: () => expenseProvider.refreshExpenses(),
-                          child: Text('Retry'),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-          
-                if (expenseProvider.recentExpenses.isEmpty) {
-                  return Center(
-                    child: Text(
-                      'No expenses yet.\nAdd your first expense!',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
-                    ),
-                  );
-                }
-          
-                return ListView.builder(
-                  itemCount: expenseProvider.recentExpenses.length,
-                  itemBuilder: (context, index) {
-                    final expense = expenseProvider.recentExpenses[index];
-                    return Card(
-                      margin: EdgeInsets.only(bottom: 10),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: Theme.of(context).colorScheme.primary,
-                          child: Icon(
-                            _getCategoryIcon(expense.category),
-                            color: Colors.white,
-                          ),
-                        ),
-                        title: Text(
-                          expense.title,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: Theme.of(context).colorScheme.onSurface,
-                          ),
-                        ),
-                        subtitle: Text(
-                          '${expense.category} • ${_formatDate(expense.date)}',
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.outline,
-                          ),
-                        ),
-                        trailing: Text(
-                          '₹${expense.amount.toStringAsFixed(2)}',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.redAccent,
-                            fontSize: 16,
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }

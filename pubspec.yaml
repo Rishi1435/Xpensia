@@ -28,10 +28,13 @@ environment:
 # the latest version available on pub.dev. To see which dependencies have newer
 # versions available, run `flutter pub outdated`.
 dependencies:
-  amplify_auth_cognito: ^2.6.5
-  amplify_flutter: ^2.6.5
+  firebase_auth: ^5.3.4
+  firebase_core: ^3.8.1
+  google_sign_in: ^6.2.2
+  csv: ^6.0.0
   cupertino_icons: ^1.0.8
   device_preview: ^1.2.0
+  file_picker: ^10.3.8
   fl_chart: ^1.0.0
   flutter:
     sdk: flutter
@@ -41,11 +44,26 @@ dependencies:
   google_fonts: ^6.2.1
   google_nav_bar: ^5.0.7
   http: ^1.4.0
-  intl: ^0.20.2
+  intl: ^0.19.0
+
+dependency_overrides:
+  intl: ^0.19.0
+  open_file: ^3.5.11
+  path_provider: ^2.1.5
+  pdf: ^3.11.3
   popover: ^0.3.1
   provider: ^6.1.5
   shared_preferences: ^2.5.3
   uuid: ^4.5.1
+  glass_kit: ^4.0.2
+  flutter_sms_inbox: ^1.0.3
+  permission_handler: ^11.3.0
+  table_calendar: ^3.1.2
+  local_auth: ^2.3.0
+  local_auth_android: ^1.0.38
+  local_auth_ios: ^1.1.6
+  flutter_local_notifications: ^18.0.1
+  timezone: ^0.10.0
 
 dev_dependencies:
 

@@ -1,8 +1,8 @@
-import 'package:flutter/foundation.dart';
+import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:flutter_login/flutter_login.dart';
-import 'package:amplify_flutter/amplify_flutter.dart';
-import 'package:amplify_auth_cognito/amplify_auth_cognito.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:xpensia/screens/home/home_screen.dart';
 
 class Login extends StatefulWidget {
@@ -13,237 +13,269 @@ class Login extends StatefulWidget {
 }
 
 class _LoginState extends State<Login> {
-  // If users type phone without +CC, prepend this:
-  static const String defaultCc = '+91';
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _isLogin = true; // Toggle between Login and Signup
+  bool _isLoading = false;
+  bool _isPasswordVisible = false;
 
-  // --- Utility Methods ---
-
-  bool _isEmail(String v) => v.contains('@');
-
-  String _normalizePhone(String raw) {
-    final cleaned = raw.replaceAll(RegExp(r'[\s-]'), '');
-    if (cleaned.startsWith('+')) return cleaned;
-    return '$defaultCc$cleaned';
-  }
-
-  /// Maps technical Amplify exceptions to user-friendly messages.
-  String _handleAuthError(AuthException e) {
-    // Using debugPrint for logging, which is standard in Flutter.
-    debugPrint('Auth Error: ${e.message}');
-    // Comparing runtimeType is more robust than comparing strings.
-    switch (e.runtimeType.toString()) {
-      case 'UserNotFoundException':
-        return 'No account found with that username. Please sign up.';
-      case 'NotAuthorizedException':
-        return 'Incorrect password or username. Please try again.';
-      case 'UserNotConfirmedException':
-        return 'Your account is not confirmed. Please use the confirmation screen.';
-      case 'CodeMismatchException':
-        return 'Invalid confirmation code. Please try again.';
-      case 'LimitExceededException':
-        return 'Too many attempts. Please try again later.';
-      case 'InvalidParameterException':
-        return 'Invalid input. Please check your email or phone number.';
-      case 'UsernameExistsException':
-        return 'An account with this username already exists.';
-      default:
-        // Return the default message for unhandled exceptions.
-        return e.message;
-    }
-  }
-
-  // --- Authentication Logic ---
-
-  Future<String?> _authUser(LoginData data) async {
+  // Auth Methods
+  Future<void> _submit() async {
+    setState(() => _isLoading = true);
     try {
-      final raw = data.name.trim();
-      final username = _isEmail(raw) ? raw : _normalizePhone(raw);
-
-      final result = await Amplify.Auth.signIn(
-        username: username,
-        password: data.password,
-      );
-
-      if (result.isSignedIn) {
-        return null; // Success, onLogin will handle navigation.
-      }
-
-      // Handle next steps if sign-in is not complete (e.g., MFA).
-      final step = result.nextStep.signInStep;
-      switch (step) {
-        case AuthSignInStep.confirmSignUp:
-          return 'Your account isn’t confirmed. Please use the confirmation screen.';
-        case AuthSignInStep.resetPassword:
-          return 'Password reset required. Use the "Forgot Password" flow.';
-        default:
-          return 'Login not complete. Next step: ${step.name}';
-      }
-    } on UserNotConfirmedException {
-      // This is the key to triggering the confirmation screen.
-      return 'Your account is not confirmed. Please check your email/SMS for a code.';
-    } on AuthException catch (e) {
-      return _handleAuthError(e);
-    }
-  }
-
-  Future<String?> _signupUser(SignupData data) async {
-    try {
-      final raw = (data.name ?? '').trim();
-
-      final isEmail = _isEmail(raw);
-
-      final username = isEmail ? raw : _normalizePhone(raw);
-
-      final attrs = <AuthUserAttributeKey, String>{};
-
-      if (isEmail) {
-        attrs[AuthUserAttributeKey.email] = raw;
+      if (_isLogin) {
+        await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: _emailController.text.trim(),
+          password: _passwordController.text.trim(),
+        );
       } else {
-        attrs[AuthUserAttributeKey.phoneNumber] = username;
+        await FirebaseAuth.instance.createUserWithEmailAndPassword(
+          email: _emailController.text.trim(),
+          password: _passwordController.text.trim(),
+        );
       }
-
-      final res = await Amplify.Auth.signUp(
-        username: username,
-
-        password: data.password!,
-
-        options: SignUpOptions(userAttributes: attrs),
-      );
-
-      if (res.isSignUpComplete) {
-        // This typically won't happen if confirmation is required.
-
-        return null;
+      // AuthWrapper in main.dart defines navigation, but we can double check
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+        );
       }
-
-      // Return null on successful sign-up initiation.
-      // Because `loginAfterSignUp` is true, flutter_login will automatically
-      // call `onLogin`. The `_authUser` function will then catch the
-      // UserNotConfirmedException and return a message, which will reliably
-      // trigger the confirmation code screen. This creates a seamless flow.
-      return null;
-    } on AuthException catch (e) {
-      return _handleAuthError(e);
+    } on FirebaseAuthException catch (e) {
+      _showError(e.message ?? "An error occurred");
+    } catch (e) {
+      _showError("An unknown error occurred");
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  Future<String?> _confirmSignUp(String code, LoginData data) async {
+  Future<void> _signInWithGoogle() async {
+    setState(() => _isLoading = true);
     try {
-      final raw = data.name.trim();
-      final username = _isEmail(raw) ? raw : _normalizePhone(raw);
-      final res = await Amplify.Auth.confirmSignUp(
-        username: username,
-        confirmationCode: code,
+      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+      if (googleUser == null) {
+        setState(() => _isLoading = false);
+        return;
+      }
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
+      final OAuthCredential credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
       );
-      return res.isSignUpComplete ? null : 'Confirmation failed. Try again.';
-    } on AuthException catch (e) {
-      return _handleAuthError(e);
+      await FirebaseAuth.instance.signInWithCredential(credential);
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+        );
+      }
+    } catch (e) {
+      _showError("Google Sign-In Failed: $e");
+      setState(() => _isLoading = false);
     }
   }
 
-  // CORRECTED: The callback provides the username string directly.
-  Future<String?> _resendCode(String username) async {
-    try {
-      final raw = username.trim();
-      final userToResend = _isEmail(raw) ? raw : _normalizePhone(raw);
-      await Amplify.Auth.resendSignUpCode(username: userToResend);
-      // This message is shown to the user in the UI.
-      return 'A new confirmation code has been sent.';
-    } on AuthException catch (e) {
-      return _handleAuthError(e);
-    }
-  }
-
-  Future<String?> _recoverPassword(String name) async {
-    try {
-      final raw = name.trim();
-      final username = _isEmail(raw) ? raw : _normalizePhone(raw);
-      await Amplify.Auth.resetPassword(username: username);
-      // Return null on success to allow flutter_login to transition
-      // to the confirm password screen.
-      return null;
-    } on AuthException catch (e) {
-      return _handleAuthError(e);
-    }
-  }
-
-  Future<String?> _confirmRecover(String code, LoginData data) async {
-    try {
-      final raw = data.name.trim();
-      final username = _isEmail(raw) ? raw : _normalizePhone(raw);
-      await Amplify.Auth.confirmResetPassword(
-        username: username,
-        newPassword: data.password,
-        confirmationCode: code,
-      );
-      return null; // Success
-    } on AuthException catch (e) {
-      return _handleAuthError(e);
-    }
-  }
-
-  void _onLoginSuccess() {
-    if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const HomeScreen()),
-      (route) => false,
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.redAccent),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return FlutterLogin(
-      title: 'XPENSIA',
-      userValidator: (value) {
-        if (value == null || value.isEmpty) {
-          return 'Field cannot be empty.';
-        }
-        return null;
-      },
-      passwordValidator: (value) {
-        if (value == null || value.length < 8) {
-          return 'Password must be at least 8 characters.';
-        }
-        return null;
-      },
-      onLogin: (data) async {
-        final result = await _authUser(data);
-        if (result == null && mounted) {
-          _onLoginSuccess();
-        }
-        return result;
-      },
-      onSignup: _signupUser,
-      onConfirmSignup: _confirmSignUp,
-      // CORRECTED: The onResendCode expects a SignupCallback (SignupData).
-      onResendCode: (SignupData data) => _resendCode(data.name ?? ''),
-      onRecoverPassword: _recoverPassword,
-      onConfirmRecover: _confirmRecover,
-      validateUserImmediately: true,
-      loginAfterSignUp: true,
-      onSubmitAnimationCompleted: () async {
-        try {
-          final session = await Amplify.Auth.fetchAuthSession();
-          if (session.isSignedIn) {
-            _onLoginSuccess();
-          }
-        } on AuthException {
-          // Not signed in, do nothing.
-        }
-      },
-
-      theme: LoginTheme(
-        primaryColor: Theme.of(context).colorScheme.primary,
-        accentColor: Theme.of(context).colorScheme.secondary,
-        buttonTheme: LoginButtonTheme(
-          backgroundColor: Theme.of(context).colorScheme.primary,
-          splashColor: Theme.of(context).colorScheme.secondary,
-        ),
-        cardTheme: CardTheme(
-          elevation: 5,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(15),
+    return Scaffold(
+      body: Stack(
+        children: [
+          // 1. Rich Gradient Background
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Color(0xFF000428), // Midnight Blue
+                  Color(0xFF004e92), // Royal Blue
+                ],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              ),
+            ),
           ),
+
+          // 2. Glass Card Center
+          Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                  child: Container(
+                    padding: const EdgeInsets.all(32),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.2),
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Logo / Title
+                        const Text(
+                          "XPENSIA",
+                          style: TextStyle(
+                            fontSize: 32,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                            letterSpacing: 2,
+                            fontFamily:
+                                'Montserrat', // Using generic sans if Montserrat not avail
+                          ),
+                        ),
+                        const SizedBox(height: 40),
+
+                        // Inputs
+                        _buildTextField(
+                          _emailController,
+                          "Email",
+                          Icons.email_outlined,
+                        ),
+                        const SizedBox(height: 20),
+                        _buildTextField(
+                          _passwordController,
+                          "Password",
+                          Icons.lock_outline,
+                          isPassword: true,
+                        ),
+                        const SizedBox(height: 30),
+
+                        // Main Button
+                        SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: ElevatedButton(
+                            onPressed: _isLoading ? null : _submit,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(
+                                0xFF0074E4,
+                              ), // Royal Blue Button
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              elevation: 0,
+                            ),
+                            child: _isLoading
+                                ? const CircularProgressIndicator()
+                                : Text(
+                                    _isLogin ? "LOGIN" : "SIGN UP",
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+
+                        // Divider
+                        const Row(
+                          children: [
+                            Expanded(child: Divider(color: Colors.white24)),
+                            Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 10),
+                              child: Text(
+                                "OR",
+                                style: TextStyle(color: Colors.white54),
+                              ),
+                            ),
+                            Expanded(child: Divider(color: Colors.white24)),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+
+                        // Google Button
+                        OutlinedButton.icon(
+                          onPressed: _signInWithGoogle,
+                          icon: const Icon(
+                            FontAwesomeIcons.google,
+                            color: Colors.white,
+                          ),
+                          label: const Text(
+                            "Continue with Google",
+                            style: TextStyle(color: Colors.white),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: Colors.white24),
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 12,
+                              horizontal: 24,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+
+                        // Toggle Login/Signup
+                        TextButton(
+                          onPressed: () => setState(() => _isLogin = !_isLogin),
+                          child: Text(
+                            _isLogin
+                                ? "Don't have an account? Sign Up"
+                                : "Already have an account? Login",
+                            style: const TextStyle(color: Colors.white70),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTextField(
+    TextEditingController controller,
+    String label,
+    IconData icon, {
+    bool isPassword = false,
+  }) {
+    return TextFormField(
+      controller: controller,
+      obscureText: isPassword ? !_isPasswordVisible : false,
+      style: const TextStyle(color: Colors.white),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(color: Colors.white70),
+        prefixIcon: Icon(icon, color: Colors.white70),
+        suffixIcon: isPassword
+            ? IconButton(
+                icon: Icon(
+                  _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                  color: Colors.white70,
+                ),
+                onPressed: () {
+                  setState(() {
+                    _isPasswordVisible = !_isPasswordVisible;
+                  });
+                },
+              )
+            : null,
+        filled: true,
+        fillColor: Colors.white.withValues(alpha: 0.05),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFF0074E4)),
         ),
       ),
     );
